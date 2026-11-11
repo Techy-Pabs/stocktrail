@@ -11,6 +11,7 @@ API always takes the pharmacy from the logged in user, never from the request.
 Needs Docker.
 
 ```sh
+git config core.hooksPath .githooks   # once per clone: turns on the commit message guard
 cp .env.example .env        # then replace the placeholder values
 docker compose up --build   # API on http://localhost:8001, Swagger at /docs
 ```
