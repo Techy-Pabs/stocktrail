@@ -1,0 +1,42 @@
+#!/bin/sh
+# Rejects a commit message that credits an AI assistant as an author.
+#
+# Git runs this before every commit once hooks are turned on with:
+#   git config core.hooksPath .githooks
+# CI runs the same script on every commit message in a push or pull request
+# (see .github/workflows/ci.yml), so the rule holds even without the hook.
+#
+# Usage: .githooks/commit-msg <file containing the commit message>
+# Exits 1 (and says why) if the message matches, case insensitively:
+#   - a Co-Authored-By: line mentioning Claude or anthropic.com
+#   - a Claude-Session line
+#   - noreply@anthropic.com anywhere
+
+message_file="$1"
+
+if [ -z "$message_file" ] || [ ! -r "$message_file" ]; then
+    echo "commit-msg: cannot read the commit message file '$message_file'" >&2
+    exit 1
+fi
+
+found=$(grep -inE \
+    -e '^[[:space:]]*co-authored-by:.*(claude|anthropic\.com)' \
+    -e '^[[:space:]]*claude-session' \
+    -e 'noreply@anthropic\.com' \
+    "$message_file")
+status=$?
+
+# grep: 0 = a match, 1 = no match, anything else = grep itself failed
+if [ "$status" -gt 1 ]; then
+    echo "commit-msg: could not check the commit message (grep failed)" >&2
+    exit 1
+fi
+
+if [ "$status" -eq 0 ]; then
+    echo "Commit rejected: commits in this repository must not credit Claude or Anthropic." >&2
+    echo "Remove these lines from the commit message:" >&2
+    echo "$found" | sed 's/^/    line /' >&2
+    exit 1
+fi
+
+exit 0

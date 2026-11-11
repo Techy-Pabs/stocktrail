@@ -60,6 +60,52 @@ jobs:
       - name: Run the test suite
         run: pytest -v
 
+  commit-messages:
+    name: Commit messages (no AI attribution)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, so every commit in the push or pull request is available
+          fetch-depth: 0
+
+      - name: Check every commit message in the push or pull request
+        # Runs the same script as the local commit-msg hook on each message.
+        # The commit ids come in through env, never pasted into the script.
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif [ -n "$PUSH_BEFORE" ] && ! echo "$PUSH_BEFORE" | grep -qE '^0+$' \
+              && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            range="$PUSH_BEFORE..$PUSH_AFTER"
+          else
+            # A new branch, or a force push whose old commit is gone:
+            # check the whole history of what was pushed
+            range="$PUSH_AFTER"
+          fi
+          echo "Checking commits in: $range"
+          # Fails the step if git can't list the commits
+          commits=$(git rev-list "$range")
+          failed=0
+          checked=0
+          for sha in $commits; do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message.txt"
+            checked=$((checked + 1))
+            if ! sh .githooks/commit-msg "$RUNNER_TEMP/message.txt"; then
+              echo "::error::Commit $sha credits an AI assistant in its message"
+              failed=1
+            fi
+          done
+          echo "Checked $checked commit message(s)"
+          exit "$failed"
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
