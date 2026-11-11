@@ -1,0 +1,5 @@
+# Tools for linting and running the tests. Not installed in the production image.
+-r requirements.txt
+pytest==8.4.2
+httpx==0.28.1
+ruff==0.17.4

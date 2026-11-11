@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint, migrate and test
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stocktrail
+          POSTGRES_PASSWORD: stocktrail
+          POSTGRES_DB: stocktrail
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stocktrail -d stocktrail"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Throwaway values that only exist inside this CI run
+      DATABASE_URL: postgresql+psycopg://stocktrail:stocktrail@localhost:5432/stocktrail
+      JWT_SECRET_KEY: ci-only-jwt-secret-not-used-anywhere-else
+      JWT_EXPIRE_MINUTES: "30"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff (lint)
+        run: ruff check .
+
+      - name: Ruff (formatting)
+        run: ruff format --check .
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Check the migrations match the models
+        run: alembic check
+
+      - name: Run the test suite
+        run: pytest -v
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # SHA-256 of gitleaks_8.30.1_linux_x64.tar.gz from the official release
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, so secrets in older commits are found too
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        # set -euo pipefail: any failed command (download, checksum, unpack)
+        # fails this step, instead of carrying on without a scanner
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" gitleaks
+          ./gitleaks version
+
+      - name: Scan the repository and its history
+        # gitleaks exits 1 when it finds a secret and with another non-zero code
+        # when it fails to run; either one fails the build. The report check
+        # afterwards proves the scan really ran, so a scanner that exits 0
+        # without scanning anything also fails.
+        run: |
+          set -euo pipefail
+          ./gitleaks git . --redact --verbose --exit-code 1 --report-format json --report-path gitleaks-report.json
+          test -s gitleaks-report.json
+          python3 -c "import json, sys; json.load(open('gitleaks-report.json'))" \
+            || { echo "gitleaks did not write a valid report" >&2; exit 1; }

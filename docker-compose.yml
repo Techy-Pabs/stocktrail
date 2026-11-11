@@ -1,0 +1,48 @@
+# Compose project name: containers, the network and the volume all start with
+# "stocktrail", so they never mix with ShopAssist's or Pinpage's.
+name: stocktrail
+
+services:
+  api:
+    container_name: stocktrail-api
+    build:
+      context: .
+      target: production
+    env_file: .env
+    ports:
+      # 8001 on your machine, because ShopAssist uses 8000
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Runs the test suite: docker compose run --rm --build tests
+  # The "test" profile keeps it from starting with a plain "docker compose up".
+  tests:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    container_name: stocktrail-db
+    # Plain PostgreSQL 16 (no extensions needed)
+    image: postgres:16
+    env_file: .env
+    ports:
+      # 5434 on your machine, because ShopAssist uses 5432 and Pinpage 5433
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
