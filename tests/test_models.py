@@ -110,3 +110,29 @@ def test_pharmacy_with_users_cannot_be_deleted(engine, pharmacy_id):
 def test_database_rejects_blank_pharmacy_name(engine, session_factory):
     with pytest.raises(IntegrityError, match="ck_pharmacies_name_not_blank"), engine.begin() as conn:
         conn.execute(text("INSERT INTO pharmacies (name) VALUES ('   ')"))
+
+
+def test_token_version_migration_gives_existing_users_version_0(engine, session_factory):
+    # A user saved before the token_version migration...
+    config = alembic_config()
+    command.downgrade(config, "748ce97199ba")
+    with engine.begin() as conn:
+        pharmacy_id = conn.scalar(text("INSERT INTO pharmacies (name) VALUES ('Old Pharmacy') RETURNING id"))
+        conn.execute(
+            text(
+                "INSERT INTO users (pharmacy_id, email, full_name, password_hash, role) "
+                "VALUES (:p, 'old@example.com', 'Old User', 'x', 'owner')"
+            ),
+            {"p": pharmacy_id},
+        )
+
+    # ...has version 0 after it
+    command.upgrade(config, "head")
+    with engine.connect() as conn:
+        assert conn.scalar(text("SELECT token_version FROM users")) == 0
+
+
+def test_database_rejects_negative_token_version(engine, pharmacy_id):
+    insert_user(engine, pharmacy_id)
+    with pytest.raises(IntegrityError, match="ck_users_token_version_not_negative"), engine.begin() as conn:
+        conn.execute(text("UPDATE users SET token_version = -1"))

@@ -3,6 +3,7 @@ from sqlalchemy import select, update
 from app.core import security
 from app.models import User
 from app.routers import auth
+from tests.helpers import assert_error
 
 
 def test_login_succeeds(register, login):
@@ -35,7 +36,8 @@ def test_wrong_password_and_unknown_email_return_identical_401(register, login):
     unknown_email = login("nobody@example.com", "wrong-password")
 
     assert wrong_password.status_code == unknown_email.status_code == 401
-    assert wrong_password.json() == unknown_email.json() == {"detail": "Incorrect email or password"}
+    assert wrong_password.json() == unknown_email.json()
+    assert_error(wrong_password, 401, "not_authenticated", "Incorrect email or password")
     assert wrong_password.headers["WWW-Authenticate"] == unknown_email.headers["WWW-Authenticate"]
 
 

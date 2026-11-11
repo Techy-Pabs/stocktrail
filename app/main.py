@@ -1,11 +1,10 @@
 import logging
 
-from fastapi import APIRouter, FastAPI, Request
-from fastapi.encoders import jsonable_encoder
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, FastAPI
+from fastapi.responses import RedirectResponse
 
-from app.routers import auth, health, me
+from app.core.errors import ErrorResponse, install_error_handlers
+from app.routers import auth, health, me, users
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
 
@@ -14,23 +13,22 @@ API_PREFIX = "/api/v1"
 app = FastAPI(
     title="Stocktrail",
     description="Inventory API for community pharmacies: batches, expiry dates and first expired, first out selling.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
+# Every error, from every route, as {"error": {"code", "message", "details"}}
+install_error_handlers(app)
 
-@app.exception_handler(RequestValidationError)
-def validation_error_handler(request: Request, exc: RequestValidationError):
-    # FastAPI's default 422 response echoes back the invalid value, which
-    # could be a password. Send the error details without the "input".
-    errors = [{k: v for k, v in e.items() if k != "input"} for e in exc.errors()]
-    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
-
-
-# Every route lives under /api/v1
-api = APIRouter(prefix=API_PREFIX)
+# Every route lives under /api/v1. Declaring 422 here makes the docs show the
+# shared error shape instead of FastAPI's default validation error.
+api = APIRouter(
+    prefix=API_PREFIX,
+    responses={422: {"model": ErrorResponse, "description": "Invalid request (see error.details)"}},
+)
 api.include_router(health.router)
 api.include_router(auth.router)
 api.include_router(me.router)
+api.include_router(users.router)
 app.include_router(api)
 
 

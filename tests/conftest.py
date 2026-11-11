@@ -15,8 +15,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
+from app.core.security import hash_password
 from app.dependencies import get_db
 from app.main import app
+from app.models import Pharmacy, Role, User
 
 DEV_DATABASE_URL = make_url(settings.database_url)
 TEST_DATABASE_URL = DEV_DATABASE_URL.set(database=f"{DEV_DATABASE_URL.database}_test")
@@ -91,6 +93,63 @@ def client(session_factory):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def quiet_client(session_factory):
+    """Like client, but an unexpected error becomes the 500 response a real
+    client would get, instead of being raised inside the test."""
+
+    def get_test_db():
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = get_test_db
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+# Hashed once: Argon2 is slow on purpose, and some tests create many users
+DEFAULT_PASSWORD_HASH = hash_password(DEFAULT_PASSWORD)
+
+
+@pytest.fixture
+def make_pharmacy(db):
+    """make_pharmacy(name) -> a saved Pharmacy."""
+
+    def _make_pharmacy(name="Ada Pharmacy"):
+        pharmacy = Pharmacy(name=name)
+        db.add(pharmacy)
+        db.commit()
+        return pharmacy
+
+    return _make_pharmacy
+
+
+@pytest.fixture
+def make_user(db):
+    """make_user(pharmacy, role=..., ...) -> a saved User whose password is DEFAULT_PASSWORD."""
+    counter = iter(range(1, 10_000))
+
+    def _make_user(pharmacy, role=Role.STAFF, email=None, full_name=None, is_active=True):
+        n = next(counter)
+        user = User(
+            pharmacy_id=pharmacy.id,
+            email=email or f"user{n}@{pharmacy.name.lower().replace(' ', '-')}.example.com",
+            full_name=full_name or f"User {n}",
+            role=role,
+            is_active=is_active,
+            password_hash=DEFAULT_PASSWORD_HASH,
+        )
+        db.add(user)
+        db.commit()
+        return user
+
+    return _make_user
 
 
 @pytest.fixture

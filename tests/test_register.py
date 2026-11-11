@@ -1,11 +1,12 @@
 import uuid
 
 import pytest
-from sqlalchemy import false, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.models import Pharmacy, User
 from app.services import registration
+from tests.helpers import assert_error
 
 
 def count(db, model) -> int:
@@ -49,13 +50,18 @@ def test_password_is_stored_as_argon2_hash(register, db):
     assert "correct-horse-battery" not in user.password_hash
 
 
-def test_register_rolls_back_pharmacy_if_user_insert_fails(register, db, monkeypatch):
+def test_register_rolls_back_pharmacy_if_user_insert_fails(quiet_client, db, monkeypatch, caplog):
     # Make the database reject the user row: password_hash is NOT NULL.
     # The pharmacy row is inserted first, in the same transaction.
     monkeypatch.setattr(registration, "hash_password", lambda password: None)
+    body = {"pharmacy_name": "Ada Pharmacy", "full_name": "Ada Obi", "email": "ada@example.com", "password": "x" * 8}
 
-    with pytest.raises(IntegrityError, match="password_hash"):
-        register()
+    response = quiet_client.post("/api/v1/auth/register", json=body)
+
+    # The client gets a generic 500; the real database error is only in the server log
+    assert_error(response, 500, "internal_error")
+    assert "password_hash" not in response.text
+    assert any(isinstance(r.exc_info[1], IntegrityError) for r in caplog.records if r.exc_info)
 
     assert count(db, User) == 0
     assert count(db, Pharmacy) == 0  # rolled back with the user
@@ -67,7 +73,7 @@ def test_register_duplicate_email_returns_409(register, db):
     response = register(email="ADA@example.com", pharmacy_name="Another Pharmacy")  # same email, other case
 
     assert response.status_code == 409
-    assert response.json() == {"detail": "Email already registered"}
+    assert_error(response, 409, "conflict", "Email already registered")
     # The second pharmacy wasn't created either
     assert (count(db, User), count(db, Pharmacy)) == (1, 1)
 
@@ -76,7 +82,7 @@ def test_register_duplicate_email_race_returns_409(register, db, monkeypatch):
     # Two sign-ups at the same moment: both pass the "email taken?" check,
     # and the database's unique constraint stops the second
     assert register(email="ada@example.com").status_code == 201
-    monkeypatch.setattr(registration, "select", lambda *args: select(User.id).where(false()))
+    monkeypatch.setattr(registration, "email_taken", lambda db, email: False)
 
     response = register(email="ada@example.com", pharmacy_name="Another Pharmacy")
 

@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models import User
+from tests.helpers import assert_error
 
 OLD = "correct-horse-battery"
 NEW = "a-brand-new-password"
@@ -16,8 +17,10 @@ def test_change_password_works_and_old_password_stops_working(client, auth_heade
 
     response = change_password(client, headers, OLD, NEW)
 
-    assert response.status_code == 204
-    assert response.content == b""
+    # A fresh token comes back, so the user stays logged in
+    assert response.status_code == 200
+    assert response.json()["token_type"] == "bearer"
+    assert response.json()["access_token"]
     assert login(password=OLD).status_code == 401
     assert login(password=NEW).status_code == 200
 
@@ -29,7 +32,7 @@ def test_wrong_current_password_is_rejected_and_nothing_changes(client, auth_hea
     response = change_password(client, headers, "not-my-password", NEW)
 
     assert response.status_code == 400
-    assert response.json() == {"detail": "Current password is incorrect"}
+    assert_error(response, 400, "bad_request", "Current password is incorrect")
     db.expire_all()
     assert db.scalar(select(User.password_hash)) == hash_before
     assert login(password=OLD).status_code == 200
