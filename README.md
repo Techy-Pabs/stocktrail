@@ -45,7 +45,9 @@ effect on the user's next request.
 
 A pharmacy always keeps at least one active owner: the last one can't be
 demoted or deactivated (409). Users are never deleted, only deactivated, and a
-deactivated user is logged out on their next request.
+deactivated user is logged out on their next request. An owner can reset any
+other user's password, including another owner's, but changes their own only
+through `/me/password` with their current password.
 
 ## Endpoints
 
@@ -63,7 +65,7 @@ in Swagger (`/docs`).
 | POST | `/users` | owner | Add a user (email, full name, role, starting password) |
 | GET | `/users/{id}` | owner | One user |
 | PATCH | `/users/{id}` | owner | Change full name, role or active flag |
-| POST | `/users/{id}/reset-password` | owner | Set a new starting password; the user's old tokens stop working |
+| POST | `/users/{id}/reset-password` | owner | Set a new starting password for another user; their old tokens stop working. Your own id is a 400: use `/me/password` |
 
 A user from another pharmacy is always a 404, never a 403. No endpoint accepts
 a `pharmacy_id`: it always comes from the logged in user.

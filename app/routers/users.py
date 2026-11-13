@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from app.core.errors import Conflict, ErrorResponse, NotFound
+from app.core.errors import BadRequest, Conflict, ErrorResponse, NotFound
 from app.core.paging import Page, Pagination, paginate, sort_param
 from app.dependencies import DbSession, OwnerUser, require_owner
 from app.models import Role, User
@@ -105,8 +105,21 @@ def update_user(body: UpdateUserRequest, user: PharmacyUser, db: DbSession):
         raise Conflict(service.LAST_OWNER_MESSAGE) from None
 
 
-@router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND)
-def reset_password(body: ResetPasswordRequest, user: PharmacyUser, db: DbSession):
-    """Give a user a new starting password. Every token they had stops working."""
+OWN_PASSWORD_MESSAGE = "Use PATCH /api/v1/me/password to change your own password."
+
+
+@router.post(
+    "/{user_id}/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=NOT_FOUND | {400: {"model": ErrorResponse, "description": "You can't reset your own password here"}},
+)
+def reset_password(body: ResetPasswordRequest, user: PharmacyUser, owner: OwnerUser, db: DbSession):
+    """Give another user a new starting password. Every token they had stops working.
+
+    Not for your own account: that needs your current password, through
+    PATCH /me/password, so a stolen token alone can't take the account over.
+    """
+    if user.id == owner.id:
+        raise BadRequest(OWN_PASSWORD_MESSAGE)
     service.set_password(db, user, body.new_password)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

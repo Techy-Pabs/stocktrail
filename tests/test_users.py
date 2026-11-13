@@ -362,3 +362,58 @@ def test_owners_in_another_pharmacy_dont_count(client, owner, make_pharmacy, mak
     response = client.patch(f"/api/v1/users/{owner.id}", json={"role": "staff"}, headers=headers_for(owner))
 
     assert_error(response, 409, "conflict")
+
+
+# --- Reset password: never your own ------------------------------------------
+
+OWN_PASSWORD_MESSAGE = "Use PATCH /api/v1/me/password to change your own password."
+
+
+def test_owner_cant_reset_their_own_password(client, owner, db, login):
+    headers = headers_for(owner)
+    hash_before = owner.password_hash
+
+    response = client.post(
+        f"/api/v1/users/{owner.id}/reset-password", json={"new_password": "taken-over-password"}, headers=headers
+    )
+
+    # Without this, a stolen owner token could set a new password with no current password
+    assert_error(response, 400, "bad_request", OWN_PASSWORD_MESSAGE)
+    db.expire_all()
+    unchanged = db.get(User, owner.id)
+    assert unchanged.token_version == 0
+    assert unchanged.password_hash == hash_before
+    # The existing token and password still work; the attempted one doesn't
+    assert client.get("/api/v1/me", headers=headers).status_code == 200
+    assert login("ada@example.com", DEFAULT_PASSWORD).status_code == 200
+    assert login("ada@example.com", "taken-over-password").status_code == 401
+
+
+def test_owner_can_still_change_their_own_password_through_me(client, owner, login):
+    response = client.patch(
+        "/api/v1/me/password",
+        json={"current_password": DEFAULT_PASSWORD, "new_password": "my-own-new-password"},
+        headers=headers_for(owner),
+    )
+
+    assert response.status_code == 200
+    assert login("ada@example.com", "my-own-new-password").status_code == 200
+
+
+@pytest.mark.parametrize("role", [Role.OWNER, Role.MANAGER, Role.STAFF])
+def test_owner_can_reset_any_other_users_password_including_another_owner(
+    client, pharmacy, owner, make_user, login, db, role
+):
+    other = make_user(pharmacy, role=role, email="other@example.com")
+    other_headers = headers_for(other)
+
+    response = client.post(
+        f"/api/v1/users/{other.id}/reset-password", json={"new_password": "reset-by-owner"}, headers=headers_for(owner)
+    )
+
+    assert response.status_code == 204
+    assert_unauthorized(client.get("/api/v1/me", headers=other_headers))
+    assert login("other@example.com", DEFAULT_PASSWORD).status_code == 401
+    assert login("other@example.com", "reset-by-owner").status_code == 200
+    db.expire_all()
+    assert db.get(User, other.id).token_version == 1
