@@ -8,19 +8,16 @@ from sqlalchemy import delete, select, update
 from app.core.config import settings
 from app.core.security import JWT_ALGORITHM, create_access_token
 from app.models import Pharmacy, User
-
-UNAUTHORIZED = {"detail": "Could not validate credentials"}
-
-
-def assert_unauthorized(response):
-    # Every auth failure looks exactly like this
-    assert response.status_code == 401
-    assert response.json() == UNAUTHORIZED
-    assert response.headers["WWW-Authenticate"] == "Bearer"
+from tests.helpers import assert_unauthorized, bearer
 
 
-def bearer(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+def signed(claims: dict, key: str | None = None, algorithm: str = JWT_ALGORITHM) -> str:
+    """A token with exactly these claims, signed with the real key unless told otherwise."""
+    return jwt.encode(claims, settings.jwt_secret_key if key is None else key, algorithm)
+
+
+def soon() -> datetime:
+    return datetime.now(UTC) + timedelta(minutes=5)
 
 
 def test_me_returns_user_and_pharmacy(client, auth_headers, db):
@@ -49,9 +46,9 @@ def test_me_without_token_returns_401(client):
     [
         "not-a-real-token",
         # Right shape, wrong signing key
-        jwt.encode({"sub": str(uuid.uuid4()), "exp": datetime.now(UTC) + timedelta(minutes=5)}, "x" * 40, "HS256"),
+        signed({"sub": str(uuid.uuid4()), "ver": 0, "exp": soon()}, key="x" * 40),
         # Unsigned ("none" algorithm)
-        jwt.encode({"sub": str(uuid.uuid4()), "exp": datetime.now(UTC) + timedelta(minutes=5)}, None, "none"),
+        jwt.encode({"sub": str(uuid.uuid4()), "ver": 0, "exp": soon()}, None, "none"),
     ],
     ids=["garbage", "wrong-key", "alg-none"],
 )
@@ -62,10 +59,11 @@ def test_me_with_bad_token_returns_401(client, token):
 def test_me_with_expired_token_returns_401(client, register, db):
     register()
     user_id = db.scalar(select(User.id))
-    expired = jwt.encode(
-        {"sub": str(user_id), "exp": datetime.now(UTC) - timedelta(seconds=1)},
-        settings.jwt_secret_key,
-        JWT_ALGORITHM,
+    # Everything right except the expiry, so expiry is what's being tested
+    expired = signed({"sub": str(user_id), "ver": 0, "exp": datetime.now(UTC) - timedelta(seconds=1)})
+    assert (
+        client.get("/api/v1/me", headers=bearer(signed({"sub": str(user_id), "ver": 0, "exp": soon()}))).status_code
+        == 200
     )
 
     assert_unauthorized(client.get("/api/v1/me", headers=bearer(expired)))
@@ -73,9 +71,7 @@ def test_me_with_expired_token_returns_401(client, register, db):
 
 @pytest.mark.parametrize("sub", ["123", "not-a-uuid"])
 def test_me_with_token_whose_sub_is_not_a_uuid_returns_401(client, sub):
-    token = jwt.encode(
-        {"sub": sub, "exp": datetime.now(UTC) + timedelta(minutes=5)}, settings.jwt_secret_key, JWT_ALGORITHM
-    )
+    token = signed({"sub": sub, "ver": 0, "exp": soon()})
 
     assert_unauthorized(client.get("/api/v1/me", headers=bearer(token)))
 
@@ -115,9 +111,25 @@ def test_role_comes_from_database_not_token(client, auth_headers, db):
     assert client.get("/api/v1/me", headers=headers).json()["role"] == "staff"
 
 
-def test_token_contains_only_user_id_and_expiry():
+def test_token_contains_only_user_id_version_and_expiry():
     user_id = uuid.uuid4()
-    payload = jwt.decode(create_access_token(user_id), settings.jwt_secret_key, algorithms=[JWT_ALGORITHM])
+    payload = jwt.decode(create_access_token(user_id, 3), settings.jwt_secret_key, algorithms=[JWT_ALGORITHM])
 
-    assert set(payload) == {"sub", "exp"}
+    assert set(payload) == {"sub", "ver", "exp"}
     assert payload["sub"] == str(user_id)
+    assert payload["ver"] == 3
+
+
+@pytest.mark.parametrize(
+    "ver",
+    ["missing", "0", 1.0, True, None],
+    ids=["missing", "string", "float", "bool", "null"],
+)
+def test_token_without_a_whole_number_version_returns_401(client, register, db, ver):
+    # Includes tokens made before token versions existed (no "ver" at all)
+    register()
+    claims = {"sub": str(db.scalar(select(User.id))), "exp": soon()}
+    if ver != "missing":
+        claims["ver"] = ver
+
+    assert_unauthorized(client.get("/api/v1/me", headers=bearer(signed(claims))))

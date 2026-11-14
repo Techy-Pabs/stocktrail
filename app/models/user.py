@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     UniqueConstraint,
     Uuid,
@@ -42,6 +43,7 @@ class User(Base):
         # "Ada@x.com" and "ada@x.com" to count as the same account
         CheckConstraint("email = lower(email)", name="email_lowercase"),
         UniqueConstraint("email"),
+        CheckConstraint("token_version >= 0", name="token_version_not_negative"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -55,6 +57,9 @@ class User(Base):
     # No default: whoever creates a user must choose the role on purpose
     role: Mapped[str] = mapped_column(String(20))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    # Goes up by one when the password changes or is reset. Every token carries
+    # the version it was made with, so raising it revokes all older tokens.
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # lazy="joined": loading a user loads their pharmacy in the same query

@@ -1,32 +1,30 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, status
 from sqlalchemy import select
 
+from app.core.errors import Conflict, ErrorResponse, NotAuthenticated
 from app.core.security import DUMMY_HASH, create_access_token, verify_password
 from app.dependencies import DbSession
 from app.models import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 from app.schemas.user import PharmacyResponse, RegisterResponse, UserResponse
-from app.services.registration import EmailAlreadyRegistered, register_pharmacy_with_owner
+from app.services.registration import register_pharmacy_with_owner
+from app.services.users import EmailAlreadyRegistered
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 INVALID_CREDENTIALS = "Incorrect email or password"
 
 
-def invalid_credentials() -> HTTPException:
+def invalid_credentials() -> NotAuthenticated:
     # The same 401 for an unknown email, a wrong password and an inactive user
-    return HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=INVALID_CREDENTIALS,
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    return NotAuthenticated(INVALID_CREDENTIALS)
 
 
 @router.post(
     "/register",
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={409: {"description": "Email already registered"}},
+    responses={409: {"model": ErrorResponse, "description": "Email already registered"}},
 )
 def register(body: RegisterRequest, db: DbSession):
     """Sign up a new pharmacy: creates the pharmacy and its owner together."""
@@ -39,14 +37,18 @@ def register(body: RegisterRequest, db: DbSession):
             password=body.password,
         )
     except EmailAlreadyRegistered:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered") from None
+        raise Conflict("Email already registered") from None
     return RegisterResponse(
         user=UserResponse.model_validate(owner),
         pharmacy=PharmacyResponse.model_validate(owner.pharmacy),
     )
 
 
-@router.post("/login", response_model=TokenResponse, responses={401: {"description": INVALID_CREDENTIALS}})
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    responses={401: {"model": ErrorResponse, "description": INVALID_CREDENTIALS}},
+)
 def login(body: LoginRequest, db: DbSession):
     """Log in with email and password. Paste the access_token into the
     Authorize button on /docs to call the other endpoints."""
@@ -61,4 +63,4 @@ def login(body: LoginRequest, db: DbSession):
     if not verify_password(body.password, user.password_hash) or not user.is_active:
         raise invalid_credentials()
 
-    return TokenResponse(access_token=create_access_token(user.id))
+    return TokenResponse(access_token=create_access_token(user.id, user.token_version))

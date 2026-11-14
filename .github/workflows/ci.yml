@@ -1,7 +1,10 @@
 name: CI
 
+# Pushes to main, and pull requests (any branch). A branch with an open pull
+# request is checked once, by the pull_request run, instead of twice.
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:

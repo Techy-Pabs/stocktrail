@@ -2,6 +2,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.dependencies import get_db
 from app.main import app
+from tests.helpers import assert_error
 
 
 def test_health_reports_api_and_database_ok(client):
@@ -20,8 +21,9 @@ def test_health_reports_unreachable_database(client):
 
     response = client.get("/api/v1/health")
 
-    assert response.status_code == 503
-    assert response.json() == {"status": "degraded", "database": "unreachable"}
+    error = assert_error(response, 503, "service_unavailable")
+    assert error["details"] == [{"component": "database", "status": "unreachable"}]
+    assert "connection refused" not in response.text
 
 
 def test_routes_live_under_api_v1(client):

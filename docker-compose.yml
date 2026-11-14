@@ -10,8 +10,8 @@ services:
       target: production
     env_file: .env
     ports:
-      # 8001 on your machine, because ShopAssist uses 8000
-      - "8001:8000"
+      # 8002 on your machine: ShopAssist's API uses 8000 and Pinpage's 8001
+      - "8002:8000"
     depends_on:
       db:
         condition: service_healthy
