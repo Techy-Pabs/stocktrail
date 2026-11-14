@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.errors import ErrorResponse, error_response
 from app.dependencies import DbSession
+from app.docs import examples
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,23 @@ router = APIRouter(tags=["health"])
 DATABASE_UNREACHABLE = "The API is running but cannot reach its database"
 
 
-@router.get("/health", responses={503: {"model": ErrorResponse, "description": DATABASE_UNREACHABLE}})
+@router.get(
+    "/health",
+    responses={
+        200: examples.response("Running, and the database is reachable", examples.HEALTH),
+        503: examples.response(
+            DATABASE_UNREACHABLE,
+            {
+                "error": {
+                    "code": "service_unavailable",
+                    "message": DATABASE_UNREACHABLE,
+                    "details": [{"component": "database", "status": "unreachable"}],
+                }
+            },
+            ErrorResponse,
+        ),
+    },
+)
 def health(db: DbSession):
     """Whether the API is up and can reach its database.
 

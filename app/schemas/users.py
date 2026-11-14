@@ -2,13 +2,16 @@
 
 from typing import Self
 
-from pydantic import model_validator
+from pydantic import ConfigDict, model_validator
 
+from app.docs import examples
 from app.models import Role
 from app.schemas.common import LowercaseEmail, Name, NewPassword, StrictRequest
 
 
 class CreateUserRequest(StrictRequest):
+    model_config = ConfigDict(json_schema_extra={"examples": [examples.CREATE_USER]})
+
     # No pharmacy here: the new user always joins the owner's pharmacy
     email: LowercaseEmail
     full_name: Name
@@ -19,6 +22,8 @@ class CreateUserRequest(StrictRequest):
 
 class UpdateUserRequest(StrictRequest):
     """Only the fields sent are changed. At least one is required."""
+
+    model_config = ConfigDict(json_schema_extra={"examples": examples.UPDATE_USER})
 
     full_name: Name | None = None
     role: Role | None = None
@@ -36,5 +41,7 @@ class UpdateUserRequest(StrictRequest):
 
 
 class ResetPasswordRequest(StrictRequest):
+    model_config = ConfigDict(json_schema_extra={"examples": [examples.RESET_PASSWORD]})
+
     # The user's new starting password
     new_password: NewPassword

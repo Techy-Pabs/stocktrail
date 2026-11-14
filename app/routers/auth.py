@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.core.errors import Conflict, ErrorResponse, NotAuthenticated
 from app.core.security import DUMMY_HASH, create_access_token, verify_password
 from app.dependencies import DbSession
+from app.docs import examples
 from app.models import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 from app.schemas.user import PharmacyResponse, RegisterResponse, UserResponse
@@ -24,7 +25,12 @@ def invalid_credentials() -> NotAuthenticated:
     "/register",
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={409: {"model": ErrorResponse, "description": "Email already registered"}},
+    responses={
+        201: examples.response("The new pharmacy and its owner", examples.REGISTERED),
+        409: examples.response(
+            "Email already registered", examples.error("conflict", "Email already registered"), ErrorResponse
+        ),
+    },
 )
 def register(body: RegisterRequest, db: DbSession):
     """Sign up a new pharmacy: creates the pharmacy and its owner together."""
@@ -47,7 +53,12 @@ def register(body: RegisterRequest, db: DbSession):
 @router.post(
     "/login",
     response_model=TokenResponse,
-    responses={401: {"model": ErrorResponse, "description": INVALID_CREDENTIALS}},
+    responses={
+        200: examples.response("Logged in: use access_token as a Bearer token", examples.TOKEN),
+        401: examples.response(
+            INVALID_CREDENTIALS, examples.error("not_authenticated", INVALID_CREDENTIALS), ErrorResponse
+        ),
+    },
 )
 def login(body: LoginRequest, db: DbSession):
     """Log in with email and password. Paste the access_token into the

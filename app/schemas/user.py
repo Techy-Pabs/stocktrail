@@ -3,6 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.docs import examples
 from app.models import Role
 
 
@@ -23,6 +24,8 @@ class PharmacyResponse(PharmacySummary):
 
 
 class UserResponse(ORMResponse):
+    model_config = ConfigDict(from_attributes=True, json_schema_extra={"examples": [examples.STAFF]})
+
     id: uuid.UUID
     email: str
     full_name: str
@@ -32,11 +35,15 @@ class UserResponse(ORMResponse):
 
 
 class RegisterResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"examples": [examples.REGISTERED]})
+
     user: UserResponse
     pharmacy: PharmacyResponse
 
 
 class MeResponse(ORMResponse):
+    model_config = ConfigDict(from_attributes=True, json_schema_extra={"examples": [examples.ME]})
+
     id: uuid.UUID
     email: str
     full_name: str
