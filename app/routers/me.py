@@ -3,14 +3,23 @@ from fastapi import APIRouter
 from app.core.errors import BadRequest, ErrorResponse
 from app.core.security import create_access_token, verify_password
 from app.dependencies import CurrentUser, DbSession
+from app.docs import examples
 from app.schemas.auth import ChangePasswordRequest, TokenResponse
 from app.schemas.user import MeResponse
 from app.services.users import set_password
 
-router = APIRouter(prefix="/me", tags=["me"])
+router = APIRouter(
+    prefix="/me",
+    tags=["me"],
+    responses={
+        401: examples.response(
+            "Not logged in", examples.error("not_authenticated", "Could not validate credentials"), ErrorResponse
+        )
+    },
+)
 
 
-@router.get("", response_model=MeResponse)
+@router.get("", response_model=MeResponse, responses={200: examples.response("You and your pharmacy", examples.ME)})
 def me(current_user: CurrentUser):
     """The logged in user and their pharmacy."""
     return current_user
@@ -20,7 +29,12 @@ def me(current_user: CurrentUser):
     "/password",
     response_model=TokenResponse,
     responses={
-        400: {"model": ErrorResponse, "description": "Current password is incorrect, or the new one is the same"}
+        200: examples.response("Password changed: a new token (older ones stop working)", examples.TOKEN),
+        400: examples.response(
+            "Current password is incorrect, or the new one is the same",
+            examples.error("bad_request", "Current password is incorrect"),
+            ErrorResponse,
+        ),
     },
 )
 def change_password(body: ChangePasswordRequest, current_user: CurrentUser, db: DbSession):

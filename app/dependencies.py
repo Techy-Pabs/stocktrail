@@ -89,3 +89,7 @@ def require_roles(*roles: Role) -> Callable[[User], User]:
 
 require_owner = require_roles(Role.OWNER)
 OwnerUser = Annotated[User, Depends(require_owner)]
+
+# Who may change the product catalogue (and, later, stock)
+require_owner_or_manager = require_roles(Role.OWNER, Role.MANAGER)
+OwnerOrManager = Annotated[User, Depends(require_owner_or_manager)]

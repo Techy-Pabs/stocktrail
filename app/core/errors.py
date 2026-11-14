@@ -126,8 +126,14 @@ def validation_details(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for error in errors:
         location, *field = error.get("loc", ())
         message = error.get("msg", "Invalid value")
+        # Our own validators' messages (e.g. a wrong barcode check digit) are
+        # written for people; Pydantic puts "Value error, " in front of them
+        message = message.removeprefix("Value error, ")
         value = error.get("input")
-        if isinstance(value, str) and value and value in message:
+        # Values under 4 characters are skipped: they show up inside ordinary
+        # messages by coincidence (a barcode "1" is in "12 digits"), and are
+        # too short to be a password (the minimum is 8)
+        if isinstance(value, str) and len(value) >= 4 and value in message:
             message = "Invalid value"
         details.append(
             {

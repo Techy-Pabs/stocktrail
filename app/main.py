@@ -4,7 +4,9 @@ from fastapi import APIRouter, FastAPI
 from fastapi.responses import RedirectResponse
 
 from app.core.errors import ErrorResponse, install_error_handlers
-from app.routers import auth, health, me, users
+from app.docs import examples
+from app.docs.text import API_DESCRIPTION, TAGS
+from app.routers import auth, health, me, products, users
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
 
@@ -12,8 +14,10 @@ API_PREFIX = "/api/v1"
 
 app = FastAPI(
     title="Stocktrail",
-    description="Inventory API for community pharmacies: batches, expiry dates and first expired, first out selling.",
-    version="0.2.0",
+    summary="Inventory API for Nigerian community pharmacies",
+    description=API_DESCRIPTION,
+    version="0.3.0",
+    openapi_tags=TAGS,
 )
 
 # Every error, from every route, as {"error": {"code", "message", "details"}}
@@ -23,12 +27,13 @@ install_error_handlers(app)
 # shared error shape instead of FastAPI's default validation error.
 api = APIRouter(
     prefix=API_PREFIX,
-    responses={422: {"model": ErrorResponse, "description": "Invalid request (see error.details)"}},
+    responses={422: examples.response("Invalid request (see error.details)", examples.VALIDATION_ERROR, ErrorResponse)},
 )
 api.include_router(health.router)
 api.include_router(auth.router)
 api.include_router(me.router)
 api.include_router(users.router)
+api.include_router(products.router)
 app.include_router(api)
 
 

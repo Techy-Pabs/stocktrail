@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.dependencies import get_db
 from app.main import app
-from app.models import Pharmacy, Role, User
+from app.models import Pharmacy, Product, ProductForm, Role, User
 
 DEV_DATABASE_URL = make_url(settings.database_url)
 TEST_DATABASE_URL = DEV_DATABASE_URL.set(database=f"{DEV_DATABASE_URL.database}_test")
@@ -150,6 +150,25 @@ def make_user(db):
         return user
 
     return _make_user
+
+
+@pytest.fixture
+def make_product(db):
+    """make_product(pharmacy, name=..., ...) -> a saved Product (barcode already normalized)."""
+
+    def _make_product(pharmacy, name="Paracetamol 500 mg Tablets", **fields):
+        product = Product(
+            pharmacy_id=pharmacy.id,
+            name=name,
+            form=fields.pop("form", ProductForm.TABLET),
+            selling_price_kobo=fields.pop("selling_price_kobo", 50000),
+            **fields,
+        )
+        db.add(product)
+        db.commit()
+        return product
+
+    return _make_product
 
 
 @pytest.fixture

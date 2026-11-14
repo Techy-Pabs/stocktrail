@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from app.core.errors import BadRequest, Conflict, ErrorResponse, NotFound
 from app.core.paging import Page, Pagination, paginate, sort_param
 from app.dependencies import DbSession, OwnerUser, require_owner
+from app.docs import examples
 from app.models import Role, User
 from app.schemas.user import UserResponse
 from app.schemas.users import CreateUserRequest, ResetPasswordRequest, UpdateUserRequest
@@ -25,13 +26,21 @@ router = APIRouter(
     tags=["users"],
     dependencies=[Depends(require_owner)],
     responses={
-        401: {"model": ErrorResponse, "description": "Not logged in"},
-        403: {"model": ErrorResponse, "description": "Only owners can manage users"},
+        401: examples.response(
+            "Not logged in", examples.error("not_authenticated", "Could not validate credentials"), ErrorResponse
+        ),
+        403: examples.response(
+            "Only owners can manage users",
+            examples.error("forbidden", "You don't have permission to do this"),
+            ErrorResponse,
+        ),
     },
 )
 
-NOT_FOUND = {404: {"model": ErrorResponse, "description": "No such user in your pharmacy"}}
 USER_NOT_FOUND = "User not found"
+NOT_FOUND = {
+    404: examples.response("No such user in your pharmacy", examples.error("not_found", USER_NOT_FOUND), ErrorResponse)
+}
 
 UserSort = sort_param(
     {"full_name": User.full_name, "email": User.email, "created_at": User.created_at},
@@ -51,7 +60,9 @@ def pharmacy_user(user_id: uuid.UUID, owner: OwnerUser, db: DbSession) -> User:
 PharmacyUser = Annotated[User, Depends(pharmacy_user)]
 
 
-@router.get("", response_model=Page[UserResponse])
+@router.get(
+    "", response_model=Page[UserResponse], responses={200: examples.response("A page of users", examples.USER_PAGE)}
+)
 def list_users(
     owner: OwnerUser,
     db: DbSession,
@@ -70,7 +81,12 @@ def list_users(
     "",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={409: {"model": ErrorResponse, "description": "Email already registered"}},
+    responses={
+        201: examples.response("The new user", examples.STAFF),
+        409: examples.response(
+            "Email already registered", examples.error("conflict", "Email already registered"), ErrorResponse
+        ),
+    },
 )
 def create_user(body: CreateUserRequest, owner: OwnerUser, db: DbSession):
     """Add a user to your pharmacy with a starting password."""
@@ -87,15 +103,26 @@ def create_user(body: CreateUserRequest, owner: OwnerUser, db: DbSession):
         raise Conflict("Email already registered") from None
 
 
-@router.get("/{user_id}", response_model=UserResponse, responses=NOT_FOUND)
+@router.get(
+    "/{user_id}",
+    response_model=UserResponse,
+    responses={200: examples.response("The user", examples.STAFF)} | NOT_FOUND,
+)
 def get_user(user: PharmacyUser):
+    """One user in your pharmacy."""
     return user
 
 
 @router.patch(
     "/{user_id}",
     response_model=UserResponse,
-    responses=NOT_FOUND | {409: {"model": ErrorResponse, "description": "Would remove the last active owner"}},
+    responses={200: examples.response("The updated user", examples.STAFF | {"role": "manager"})}
+    | NOT_FOUND
+    | {
+        409: examples.response(
+            "Would remove the last active owner", examples.error("conflict", service.LAST_OWNER_MESSAGE), ErrorResponse
+        )
+    },
 )
 def update_user(body: UpdateUserRequest, user: PharmacyUser, db: DbSession):
     """Change a user's full name, role or active flag. Deactivate instead of deleting."""
@@ -111,7 +138,12 @@ OWN_PASSWORD_MESSAGE = "Use PATCH /api/v1/me/password to change your own passwor
 @router.post(
     "/{user_id}/reset-password",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=NOT_FOUND | {400: {"model": ErrorResponse, "description": "You can't reset your own password here"}},
+    responses=NOT_FOUND
+    | {
+        400: examples.response(
+            "You can't reset your own password here", examples.error("bad_request", OWN_PASSWORD_MESSAGE), ErrorResponse
+        )
+    },
 )
 def reset_password(body: ResetPasswordRequest, user: PharmacyUser, owner: OwnerUser, db: DbSession):
     """Give another user a new starting password. Every token they had stops working.
